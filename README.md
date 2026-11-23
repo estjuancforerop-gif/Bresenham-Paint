@@ -1,180 +1,147 @@
-# PAINT — Dibujo sobre grilla
+# Paint – Editor gráfico sobre una cuadrícula
 
-**Nombre:** Juan Camilo Forero Páez  
-**Código estudiantil:** _(agregar mi código institucional antes de entregar)_  
-**Proyecto:** Paint
-**Proyecto:** Paint sobre una grilla de casillas, desarrollado en C++ con OpenGL, GLFW, GLAD y Dear ImGui.
+## Datos del proyecto
 
----
+- **Nombre:** Juan Camilo Forero Páez
+- **Código estudiantil:** 6014536
+- **Lenguaje:** C++
+- **Interfaz gráfica:** Dear ImGui
+- **Renderizado:** OpenGL 3.3
+- **Ventana y eventos:** GLFW
+- **Carga de funciones OpenGL:** GLAD
 
-## 1. Descripción general
+## Descripción general
 
-Este proyecto es un Paint sencillo donde todo se dibuja sobre una **grilla de casillas cuadradas**.
-Cada figura se calcula con los algoritmos vistos en clase (Bresenham para la línea, punto medio para
-el círculo), y los demás elementos (cuadrado, triángulo, forma libre, relleno y transformaciones) los armé
-**encima de esos mismos algoritmos**, con una implementación organizada en módulos para poder explicar y modificar cada parte.
+Paint es una aplicación de dibujo que representa figuras sobre una cuadrícula de casillas. El usuario elige una herramienta en el panel lateral (hecho con Dear ImGui), hace clic sobre la cuadrícula y el programa calcula qué casillas pertenecen a la figura.
 
-La idea principal es esta: los algoritmos **no dibujan**, solo calculan *qué casillas hay que pintar*.
-Después otra parte del programa las pinta. Así puedo cambiar la forma de pintar sin tocar los algoritmos.
+Todo el dibujo de contornos se hace con **algoritmos de Bresenham**: las líneas, el círculo y los lados de triángulos, cuadrados y formas libres. 
+El programa guarda cada figura como datos independientes (puntos, radio, colores) y **repinta la cuadrícula desde cero** cada vez que algo cambia. Por eso se puede rellenar, rotar, escalar y deshacer sin que la figura se deforme.
 
-## 2. Lo que hace el programa (requisitos del parcial)
+## Qué incluye (según la rúbrica)
 
 | Requisito | Dónde está |
 |---|---|
-| Línea de Bresenham | `algoritmos.cpp` → `dibujarLinea` (usa `lineaHorizontal` y `lineaVertical`) |
-| Círculo de Bresenham (punto medio) | `algoritmos.cpp` → `dibujarCirculo` |
-| Cuadrados y rectángulos | `figuras.cpp` → `crearFigura` (4 esquinas unidas con líneas de Bresenham) |
-| Triángulos en la grilla | herramienta triángulo (3 clicks), se dibuja con `dibujarPoligono` |
-| Formas libres | herramienta forma libre (polígono con los puntos que yo quiera) |
-| Relleno de primitivas | `algoritmos.cpp` → `rellenarContorno` (relleno por inundación) |
-| Transformaciones lineales (rotación) | `figuras.cpp` → `aplicarMatriz`, `rotarFigura` (y también `escalarFigura`) |
-| Interacción con interfaz (Dear ImGui) | `interfaz.cpp` → barra de herramientas y lectura del mouse |
+| Línea de Bresenham | `algoritmos.cpp` → `dibujarLinea` (usa `lineaHorizontal` y `lineaVertical`, cubre los 8 octantes) |
+| Círculo de Bresenham | `algoritmos.cpp` → `dibujarCirculo` |
+| Formas libres | `algoritmos.cpp` → `dibujarPoligono`; herramienta de forma libre en el panel |
+| Triángulos en la cuadrícula | `FIGURA_TRIANGULO` (3 clics) |
+| Cuadrados y rectángulos | `FIGURA_RECTANGULO` (2 clics; con Shift sale cuadrado perfecto) |
+| Relleno de primitivas | `algoritmos.cpp` → `rellenarContorno` (inundación) usado por `figuras.cpp` |
+| Transformaciones lineales | `figuras.cpp` → `actualizarPuntos`, `rotarFigura`, `escalarFigura` |
+| Interfaz con Dear ImGui | `interfaz.cpp` (panel, selector de color, mouse y teclado) |
 
-## 3. Cómo se usa
+## Arquitectura del proyecto
 
-La barra de arriba tiene 8 botones (solo íconos). De izquierda a derecha:
+El código está separado por responsabilidades. Cada archivo hace una sola cosa:
 
-| Botón | Qué hace | Cómo se usa |
+```
+ usuario (mouse / teclado)
+        │
+        ▼
+  interfaz.cpp ──────► figuras.cpp ──────► algoritmos.cpp
+  (Dear ImGui:         (lista de figuras,   (Bresenham, círculo,
+   panel y clics)       deshacer, matrices)   polígono, relleno)
+        │                    │
+        │                    ▼
+        │               grilla.cpp
+        │               (casillas y colores)
+        ▼                    │
+     main.cpp ◄──────────────┘
+     (ventana GLFW, shaders OpenGL, bucle principal)
+```
+
+- **`main.cpp`:** punto de entrada. Inicializa GLFW, GLAD, OpenGL y Dear ImGui; crea los buffers de la cuadrícula y ejecuta el bucle principal.
+- **`grilla.h` / `grilla.cpp`:** guarda filas, columnas, vértices, índices y colores de cada casilla. Sabe pintar una casilla, una lista de casillas y limpiar todo. No sabe nada de figuras.
+- **`algoritmos.h` / `algoritmos.cpp`:** los algoritmos de la clase. No dibujan: devuelven la lista de casillas que forman cada figura.
+- **`figuras.h` / `figuras.cpp`:** define los tipos de figura, guarda la lista de figuras, calcula contorno e interior, repinta la cuadrícula, deshace y aplica rotación y escalado.
+- **`interfaz.h` / `interfaz.cpp`:** panel de herramientas (Dear ImGui), conversión del mouse a (columna, fila) y atajos de teclado.
+- **`librerias/`:** Dear ImGui, GLFW y GLAD incluidos en el proyecto.
+
+### Qué pasa en cada cuadro
+
+1. El usuario elige una herramienta en el panel o hace clic en la cuadrícula.
+2. `interfaz.cpp` convierte el clic a coordenadas de columna y fila.
+3. Según la herramienta, se crea una figura nueva o se modifica una existente.
+4. `figuras.cpp` conserva los datos de la figura y marca que la cuadrícula cambió.
+5. `repintarGrilla()` limpia la cuadrícula y vuelve a pintar todas las figuras en orden; para cada una pide a `algoritmos.cpp` su contorno (y su interior si está rellena).
+6. `grilla.cpp` actualiza los colores y OpenGL presenta el resultado.
+
+## Algoritmos
+
+### Línea de Bresenham
+Usa solo enteros. Un parámetro de decisión `D` indica si la siguiente casilla queda en la misma fila (o columna) o en la vecina. Se divide en dos casos según la inclinación:
+
+- `|dx| >= |dy|`: se avanza una casilla en X (`lineaHorizontal`).
+- `|dy| > |dx|`: se avanza una casilla en Y (`lineaVertical`).
+
+`dibujarLinea` elige el caso automáticamente, así que funciona en cualquier dirección.
+
+### Círculo de Bresenham
+Calcula solo un octavo de la circunferencia y obtiene los otros siete por simetría (`puntosSimetricos`). Empieza con `D = 3 - 2r`; en cada paso, si `D > 0` la coordenada `y` baja una casilla y `D` aumenta `4(x - y) + 10`, y si no, solo aumenta `4x + 6`. No usa raíces ni decimales.
+
+### Polígonos (triángulo, cuadrado, forma libre)
+Un polígono es una lista de puntos unidos de dos en dos con la línea de Bresenham. El rectángulo guarda sus 4 esquinas (no solo 2) para poder rotarlo.
+
+### Relleno por inundación
+Busca el exterior en lugar del interior: desde una esquina que está afuera se inunda de vecino en vecino (4 vecinos) sin cruzar el contorno. Lo que el agua nunca alcanza es el interior. Se usan 4 vecinos porque la línea de Bresenham es 8-conexa y así el agua no se cuela por las diagonales. Funciona con figuras cóncavas (por ejemplo una forma en "C").
+
+### Transformaciones lineales
+Cada punto se multiplica por una matriz 2×2 alrededor del centro de la figura (se resta el centro, se multiplica y se vuelve a sumar):
+
+```
+| x' |   | a  b |   | x |
+| y' | = | c  d | * | y |
+```
+
+- **Rotación:** `| cos θ  -sin θ ; sin θ  cos θ |`. Como la Y de la pantalla crece hacia abajo, un ángulo positivo gira en el sentido de las manecillas del reloj.
+- **Escala:** `| s  0 ; 0  s |`, donde `s` es un porcentaje entero (100 = tamaño original, 200 = el doble).
+
+**Todo con enteros:** no se usan `double` ni `float` en los cálculos. El seno y el coseno se guardan en una tabla de 0° a 90° multiplicados por 1000 (por ejemplo `sen 30° = 500`); los demás cuadrantes salen por simetría (`senoX1000`, `cosenoX1000`). Después de multiplicar se divide entre 1000 con una división entera que redondea al más cercano (`dividirRedondeando`).
+
+**Sin acumular error:** cada figura guarda sus puntos originales (`puntosBase`), el ángulo total (`angulo`) y la escala total (`escala`). Cada vez que se rota o escala, los puntos se recalculan desde la base, así 24 giros de 15° dejan la figura exactamente como empezó.
+
+**Radio del círculo:** es la mayor de las dos distancias (horizontal o vertical) entre el centro y el segundo clic, por lo que no hace falta raíz cuadrada.
+
+## Interfaz y controles
+
+El panel de la izquierda (una sola ventana de Dear ImGui) tiene tres bloques:
+
+| Bloque | Widget | Qué hace |
 |---|---|---|
-| Línea | línea de Bresenham | 2 clicks: inicio y final |
-| Cuadrado | cuadrado o rectángulo | 2 clicks en esquinas opuestas. Con **Shift** en el 2.º click sale cuadrado perfecto |
-| Círculo | círculo con punto medio | 1.º click = centro, 2.º click = un punto del borde (define el radio) |
-| Triángulo | triángulo | 3 clicks, uno por cada vértice |
-| Forma libre | polígono libre | un click por vértice. Termina con **click derecho** o **Enter** |
-| Relleno | rellena o vacía una figura | click sobre la figura |
-| Rotar | gira la figura 15° sobre su centro | click sobre la figura (**Shift** gira al otro lado) |
-| Escalar | agranda la figura ×1.25 | click sobre la figura (**Shift** la achica) |
+| Dibujar | Línea | 2 clics: inicio y fin |
+| | Círculo | 2 clics: centro y un punto del borde |
+| | Rectángulo | 2 clics: esquinas opuestas |
+| | Cuadrado | 2 clics: una esquina y la contraria (los lados salen iguales) |
+| | Triángulo | 3 clics: los 3 vértices |
+| | Forma libre | Un clic por vértice. Se cierra con el botón **Cerrar forma**, **Enter** o **clic derecho** (mínimo 3 puntos) |
+| Editar figura | Rellenar | Clic dentro de una figura: la rellena con el color de relleno |
+| | Rotar + deslizador `grados` | Clic sobre una figura: la gira esos grados (de -180 a 180; negativo gira al otro lado) |
+| | Escalar + deslizador `porcentaje` | Clic sobre una figura: la escala por ese porcentaje (de 50% a 200%; 125% = 25% más grande) |
+| Colores | `borde` y `relleno` | Selectores de color (clic en el cuadrito) |
 
-**Atajos:** `Ctrl+Z` deshace (se puede varias veces), `Supr` borra todo, `Esc` cancela la figura que estoy haciendo.
+Abajo del panel hay dos botones (**Deshacer** y **Borrar todo**), un texto de ayuda de la herramienta elegida y la casilla donde está el mouse.
 
-Mientras hago una figura, las casillas que ya clickeé quedan marcadas. La casilla donde está el mouse
-tiene un borde blanco para saber dónde voy a hacer click. La ventana se puede agrandar: en vez de estirar
-las casillas, aparecen **más casillas**. Por consola se imprime, paso a paso, cada casilla que calculó el
-algoritmo de la figura que acabo de terminar.
+**Teclado:** `Esc` cancela la figura en curso, `Enter` cierra la forma libre, `Ctrl+Z` deshace (hasta 100 pasos) y `Supr` borra todo (también se puede deshacer).
 
-## 4. Arquitectura del proyecto
+**Consola:** cada vez que se termina una figura, el programa imprime paso a paso las casillas que calculó el algoritmo. Sirve para explicar el procedimiento.
 
-El programa está partido en módulos. Cada uno hace una sola cosa:
+**Nota:** el marco blanco que sigue al mouse es un indicador de Dear ImGui para ver en qué casilla se va a hacer clic; no es una figura.
 
-```
-                     +-----------------+
-                     |    main.cpp     |   ventana, shaders, buffers y bucle principal
-                     +--------+--------+
-                              |
-          +-------------------+-------------------+
-          |                                       |
-+---------v----------+                 +----------v---------+
-|    interfaz.cpp    |                 |     figuras.cpp    |
-| barra (Dear ImGui) |  ------------>  | lista de figuras,  |
-| mouse y teclado    |   crea / pide   | relleno, rotar,    |
-+--------------------+   cambios       | escalar, deshacer  |
-                                       +----------+---------+
-                                                  |
-                          +-----------------------+---------------------+
-                          |                                             |
-                +---------v----------+                       +----------v---------+
-                |   algoritmos.cpp   |                       |     grilla.cpp     |
-                | Bresenham, punto   |   devuelve casillas   | casillas, vertices |
-                | medio, polígono,   |  ------------------>  | y colores          |
-                | relleno            |                       +--------------------+
-                +--------------------+
-```
+## Compilación
 
-**Qué hace cada módulo**
+El proyecto incluye `Paint.slnx` y `Paint.vcxproj` para abrirlo en Visual Studio (Windows, x64). Se deben conservar las carpetas de `librerias/` (incluyen `glfw3.lib`, los encabezados de GLFW/GLAD y Dear ImGui). El enlazado usa `glfw3.lib`, `opengl32.lib`, `user32.lib`, `gdi32.lib` y `shell32.lib`.
 
-- **`grilla.cpp / .h`**: guarda la grilla. Cada casilla son 4 vértices (2 triángulos) con su color.
-  Pintar una casilla es cambiar el color de sus 4 vértices. No sabe nada de figuras.
-- **`algoritmos.cpp / .h`**: los algoritmos de clase. Reciben puntos y devuelven una lista de casillas.
-  No dibujan nada.
-- **`figuras.cpp / .h`**: guarda la lista de figuras (`figuras`) y la figura que estoy haciendo (`enCurso`).
-  También repinta la grilla, rellena, aplica transformaciones y maneja el historial para deshacer.
-- **`interfaz.cpp / .h`**: la barra de herramientas con Dear ImGui y la lógica de los clicks. Convierte la
-  posición del mouse en una casilla.
-- **`main.cpp`**: crea la ventana, compila los shaders, sube la grilla a la GPU y repite el bucle.
-
-**Qué pasa en cada cuadro** (`dibujarCuadro` en `main.cpp`):
-
-1. Empiezo el cuadro de ImGui y calculo dónde está el lienzo (la zona de la grilla).
-2. Reviso si la ventana cambió de tamaño; si cambió, recalculo cuántas casillas caben.
-3. Leo el mouse y el teclado (`procesarMouse`, `procesarTeclado`) y armo la barra (`dibujarBarra`).
-4. Si algo cambió (`grillaCambio`), repinto: limpio la grilla y pinto las figuras en orden
-   (para cada una: primero el relleno y luego el contorno encima).
-5. Dibujo la grilla con OpenGL y encima la interfaz.
-
-**Decisión importante:** la grilla *no* guarda las figuras, solo colores. Las figuras viven en una lista
-y cada vez que algo cambia se repinta todo desde cero. Gracias a eso, rotar, rellenar, borrar y deshacer
-son solo cambiar la lista y volver a pintar.
-
-## 5. Algoritmos (explicados para mí)
-
-**Línea de Bresenham.** En vez de calcular la pendiente con decimales, uso un número entero `D`
-(parámetro de decisión) que me dice si la siguiente casilla va en la misma fila o en la vecina. Solo hay
-sumas y restas. Tengo dos versiones: `lineaHorizontal` (cuando avanza más en X que en Y) y `lineaVertical`
-(al revés), y `dibujarLinea` decide cuál usar comparando `|dx|` con `|dy|`. Así funciona en los 8 octantes.
-
-**Círculo (punto medio).** Un círculo es simétrico, entonces solo calculo un octavo y los otros 7 salen por
-simetría (`puntosSimetricos`). En cada paso el parámetro `D` me dice si el punto medio quedó dentro o fuera
-del círculo y con eso decido si `y` baja o no.
-
-**Polígonos (rectángulo, triángulo, forma libre).** Un polígono es una lista de puntos unidos de dos en dos
-con la línea de Bresenham (`dibujarPoligono`). El rectángulo son 4 esquinas, el triángulo 3 y la forma libre
-los que yo quiera.
-
-**Relleno por inundación.** En vez de buscar "lo de adentro", busco "lo de afuera": empiezo desde una esquina
-que seguro está afuera y voy llenando vecino por vecino sin cruzar el contorno. Lo que nunca se alcanza es el
-interior. Funciona con cualquier figura cerrada, incluso formas libres cóncavas. Inundo con 4 vecinos porque
-la línea de Bresenham es 8-conexa, y así el "agua" no se cuela por las diagonales.
-
-**Transformaciones lineales.** Rotar y escalar son multiplicar cada punto por una matriz 2×2:
+## Estructura de carpetas
 
 ```
-| x' |   | a  b |   | x |          rotación:  | cos  -sin |      escala:  | s  0 |
-| y' | = | c  d | * | y |                     | sin   cos |               | 0  s |
+Bresenham/
+├── main.cpp
+├── grilla.h / grilla.cpp
+├── algoritmos.h / algoritmos.cpp
+├── figuras.h / figuras.cpp
+├── interfaz.h / interfaz.cpp
+├── glad.c
+├── Paint.slnx / Paint.vcxproj
+├── README.md
+└── librerias/   (imgui, include, lib)
 ```
-
-Esa multiplicación gira alrededor de (0,0), que es la esquina de la grilla. Para que la figura gire sobre su
-**propio centro**: (1) le resto el centro a cada punto, (2) multiplico por la matriz y (3) vuelvo a sumar el
-centro (`aplicarMatriz`). Guardo los puntos con decimales para que, al rotar varias veces, no se acumulen
-errores de redondeo; solo redondeo a casilla al momento de pintar.
-
-## 6. Estructura de archivos
-
-```
-Paint/
-├── main.cpp            ventana, shaders y bucle principal
-├── grilla.cpp / .h     casillas, vértices y colores
-├── algoritmos.cpp / .h Bresenham, punto medio, polígono y relleno
-├── figuras.cpp / .h    lista de figuras, relleno, transformaciones, deshacer
-├── interfaz.cpp / .h   barra de herramientas (Dear ImGui) y mouse
-├── glad.c              carga de funciones de OpenGL
-├── librerias/
-│   ├── include/        cabeceras de GLFW y glad
-│   ├── lib/            glfw3.lib
-│   └── imgui/          Dear ImGui y sus backends para GLFW y OpenGL3
-├── Paint.slnx / .vcxproj / .vcxproj.filters
-└── README.md
-```
-
-## 7. Cómo compilarlo
-
-1. Abrir `Paint.slnx` con Visual Studio 2022 (17.10 o superior).
-2. Elegir la configuración **x64** (Debug o Release).
-3. Compilar y ejecutar (`F5`).
-
-Las librerías ya vienen dentro de la carpeta `librerias`, no hay que instalar nada más.
-
-## 8. Librerías usadas
-
-- [GLFW](https://www.glfw.org/): ventana, mouse y teclado.
-- [glad](https://glad.dav1d.de/): carga de las funciones de OpenGL.
-- [Dear ImGui](https://github.com/ocornut/imgui): la barra de herramientas.
-
-
-## 9. Datos que debo completar antes de entregar
-
-- Escribir mi código estudiantil en la portada de este README.
-- Abrir la solución en Visual Studio y compilar en **x64**.
-- Probar cada herramienta y poder explicar con mis palabras cómo funciona.
-- Personalizar la interfaz, colores o controles según mis decisiones y conservar únicamente lo que pueda sustentar en la revisión.
-
-> Nota: este README describe la organización y el funcionamiento del código incluido. La compilación final debe verificarse en el equipo donde se va a presentar, porque depende de que Visual Studio tenga instalado el compilador C++ y el SDK de Windows.
